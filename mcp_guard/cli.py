@@ -12,6 +12,7 @@ from rich.console import Console
 from . import __version__
 from .formatters import to_json, to_rich, to_sarif
 from .parser import MCPParser
+from .policy import DenyPolicy
 from .scanner import Scanner
 
 
@@ -45,11 +46,42 @@ def main():
     default=None,
     help="Exit with error if findings at or above this level",
 )
+@click.option(
+    "--config",
+    "-c",
+    "config_path",
+    type=click.Path(exists=True),
+    default=None,
+    help="Path to YAML configuration file with deny rules",
+)
+@click.option(
+    "--deny",
+    "deny_flag",
+    is_flag=True,
+    default=False,
+    help="Exit with error if any denied server or tool is found",
+)
+@click.option(
+    "--deny-server",
+    "cli_deny_servers",
+    multiple=True,
+    help="Server pattern to deny (supports wildcards, can be repeated)",
+)
+@click.option(
+    "--deny-tool",
+    "cli_deny_tools",
+    multiple=True,
+    help="Tool pattern to deny (supports wildcards and server/tool scoping, can be repeated)",
+)
 def scan(
     path: str,
     output_format: str,
     output: str | None,
     fail_on: str | None,
+    config_path: str | None,
+    deny_flag: bool,
+    cli_deny_servers: tuple[str, ...],
+    cli_deny_tools: tuple[str, ...],
 ):
     """Scan an MCP server for security risks.
 
@@ -66,7 +98,36 @@ def scan(
         console.print(f"[red]Error: Invalid JSON - {e}[/red]")
         sys.exit(1)
 
-    scanner = Scanner()
+    # Resolve deny policy from config file or CLI options
+    deny_policy: DenyPolicy | None = None
+    if config_path:
+        try:
+            deny_policy = DenyPolicy.from_yaml(config_path)
+        except Exception as e:
+            console.print(f"[red]Error loading config file: {e}[/red]")
+            sys.exit(1)
+    else:
+        path_obj = Path(path)
+        search_dirs = [path_obj if path_obj.is_dir() else path_obj.parent, Path.cwd()]
+        for base_dir in search_dirs:
+            for name in ["mcp-guard.yaml", "mcp-guard.yml"]:
+                candidate = base_dir / name
+                if candidate.is_file():
+                    try:
+                        deny_policy = DenyPolicy.from_yaml(candidate)
+                        break
+                    except Exception:
+                        pass
+            if deny_policy:
+                break
+
+    if cli_deny_servers or cli_deny_tools:
+        if deny_policy is None:
+            deny_policy = DenyPolicy()
+        deny_policy.servers.extend(cli_deny_servers)
+        deny_policy.tools.extend(cli_deny_tools)
+
+    scanner = Scanner(deny_policy=deny_policy)
     result = scanner.scan(manifest)
 
     # Format output
@@ -85,6 +146,11 @@ def scan(
             console.print(f"[green]Output written to {output}[/green]")
         else:
             click.echo(output_str)
+
+    # Check auto-deny flag
+    has_denied = any(f.rule_id.startswith("DENY") for f in result.findings)
+    if deny_flag and has_denied:
+        sys.exit(1)
 
     # Exit code based on fail-on threshold
     if fail_on:
@@ -119,8 +185,7 @@ def info(path: str):
         write_status = "✏️" if cap.is_write else ""
         destructive_status = "💥" if cap.is_destructive else ""
         console.print(
-            f"  {auth_status} [{cap.type.value}] {cap.name} "
-            f"{write_status} {destructive_status}"
+            f"  {auth_status} [{cap.type.value}] {cap.name} {write_status} {destructive_status}"
         )
         if cap.description:
             console.print(f"    {cap.description[:80]}")

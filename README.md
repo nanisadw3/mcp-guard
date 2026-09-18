@@ -35,8 +35,38 @@ mcp-guard scan ./my-mcp-server --format sarif --output results.sarif
 # Fail CI if HIGH or CRITICAL findings
 mcp-guard scan ./my-mcp-server --fail-on high
 
+# Enforce security deny rules from a YAML config
+mcp-guard scan ./my-mcp-server --config policy.yaml --deny
+
+# Deny specific servers or tools on the fly
+mcp-guard scan ./my-mcp-server --deny-server "untrusted-*" --deny
+
 # Show server info without scanning
 mcp-guard info ./my-mcp-server
+```
+
+## Deny Rules & Policy Enforcement
+
+You can configure deny rules in a YAML file (e.g. `policy.yaml` or default `mcp-guard.yaml`). Deny rules support exact matches, wildcards (`*`), and tool-level scoping:
+
+```yaml
+# Security Policy Configuration
+deny:
+  # Block unverified or untrusted servers
+  servers:
+    - "malicious-server"
+    - "github-*"
+  # Block high-risk tools (exact name, wildcard, or scoped to server)
+  tools:
+    - "github/delete_repo"
+    - "filesystem/write"
+    - "sys_*"
+```
+
+Use the `--deny` flag to fail with exit code 1 whenever any denied server or tool is detected:
+
+```bash
+mcp-guard scan ./my-mcp-server --config policy.yaml --deny
 ```
 
 ## What It Detects
@@ -49,6 +79,8 @@ mcp-guard info ./my-mcp-server
 | MCP004 | LOW | Capability without description |
 | MCP005 | MEDIUM | Write capability without corresponding read |
 | MCP006 | HIGH | Destructive operation without confirmation |
+| DENY001 | CRITICAL | Server matches security policy deny rule |
+| DENY002 | CRITICAL | Tool capability matches security policy deny rule |
 
 ## Example Output
 
