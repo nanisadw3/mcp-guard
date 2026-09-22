@@ -14,13 +14,16 @@ The MCP ecosystem exploded (67,000+ servers in 18 months), but security hasn't k
 ## Install
 
 ```bash
-pip install mcp-guard
+pip install git+https://github.com/nanisadw3/mcp-guard
 ```
+
+> **Note:** not published on PyPI yet. Once it is, `pip install mcp-guard` will work.
 
 ## Quick Start
 
 ```bash
-# Scan an MCP server directory
+# Scan an MCP server directory (must contain mcp.json, mcp.config.json,
+# .mcp.json or server.json)
 mcp-guard scan ./my-mcp-server
 
 # Scan a specific config file
@@ -87,7 +90,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - run: pip install mcp-guard
+      - run: pip install git+https://github.com/nanisadw3/mcp-guard
       - run: mcp-guard scan ./mcp-server --format sarif --output results.sarif
       - uses: github/codeql-action/upload-sarif@v3
         with:
